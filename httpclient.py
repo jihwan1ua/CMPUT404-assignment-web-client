@@ -1,6 +1,7 @@
 #!/usr/bin/env python
 # coding: utf-8
 # Copyright 2016 Abram Hindle, https://github.com/tywtyw2002, and https://github.com/treedust
+# Copyright 2016 Ji Hwan Kim
 # 
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -23,6 +24,8 @@ import socket
 import re
 # you may use urllib to encode data appropriately
 import urllib
+# spec said we can use urlparse
+from urlparse import urlparse
 
 def help():
     print "httpclient.py [GET/POST] [URL]\n"
@@ -36,17 +39,27 @@ class HTTPClient(object):
     #def get_host_port(self,url):
 
     def connect(self, host, port):
-        # use sockets!
-        return None
+        # TCP socket connection
+        clientSocket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        clientSocket.connect((host, port))
+        return clientSocket
 
     def get_code(self, data):
-        return None
+        line = data.split()
+        temp = line[1]
+        #temp = temp.split('.')[0]
+        code = int(temp)
+        return code
 
     def get_headers(self,data):
-        return None
+        line = data.split('\r\n\r\n')
+        header = line[0]
+        return header
 
     def get_body(self, data):
-        return None
+        line = data.split('\r\n\r\n')
+        body = line[1]
+        return body
 
     # read everything from the socket
     def recvall(self, sock):
@@ -61,13 +74,62 @@ class HTTPClient(object):
         return str(buffer)
 
     def GET(self, url, args=None):
-        code = 500
-        body = ""
+        
+        # the test url has (basehost, baseport, path)
+        # arg is None iff the sender didn't explicitly specified args
+        parse = urlparse(url)
+        hostname = parse.hostname
+        port = parse.port
+        path = parse.path
+        http = "GET "+path+" HTTP/1.1 \r\n"
+        http_response = "User-Agent: HTTPClient \r\n" + "Host: " + hostname + "\r\n" + "Accept: */* \r\n\r\n"
+        http1 = "Connection: closed\r\n"
+        http2 = "Content-Type: application/x-www-form-urlencoded\r\n"
+        req = http_response + http1 + http2
+
+        server = self.connect(hostname, port)
+        server.sendall(http+req)
+        # at this point the server is connected
+        data = self.recvall(server)
+#        header = self.get_headers(data)
+#        req = header + http_response + http1 + http2 + http3
+#        server.sendall(req)
+        header = self.get_headers(data)
+        server.sendall(header)
+        code = self.get_code(data)
+        body = self.get_body(data)
+
         return HTTPResponse(code, body)
 
     def POST(self, url, args=None):
-        code = 500
-        body = ""
+        parse = urlparse(url)
+        hostname = parse.hostname
+        port = parse.port
+        path = parse.path
+        http = "POST "+path+" HTTP/1.1 \r\n"
+        http_response = "User-Agent: HTTPClient \r\n" + "Host: " + hostname + "\r\n" + "Accept: */* \r\n\r\n"
+        http1 = "Connection: closed\r\n"
+        http2 = "Content-Length: "
+        http3 = "Content-Type: application/x-www-form-urlencoded\r\n"
+
+        # check args
+        if args == None:
+            args = str()
+            http2 += "0\r\n"
+        else:
+            # use urlencode to convert args
+            args = urllib.urlencode(args)
+            http2 += str(len(args))+"\r\n"
+
+        req = http_response + http1 + http2 + http3
+        server = self.connect(hostname, port)
+        server.sendall(http+req+args)
+        # at this point the server is connected
+        data = self.recvall(server)
+        header = self.get_headers(data)
+        server.sendall(header)
+        code = self.get_code(data)
+        body = self.get_body(data)
         return HTTPResponse(code, body)
 
     def command(self, url, command="GET", args=None):
